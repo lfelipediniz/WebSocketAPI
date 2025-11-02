@@ -69,7 +69,7 @@ async def http_to_websocket(request: Request) -> dict:
     try:
         # Read the body as plain text
         body = await request.body()
-        message = body.decode("utf-8")
+        message = body.decode("utf-8") + ". Requisição concluída com sucesso."
 
         logger.info("HTTP POST received for room %s: %s", room_id, message)
 
