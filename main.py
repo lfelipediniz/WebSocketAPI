@@ -1,10 +1,12 @@
 from typing import Dict, Set
 import logging
 
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI, WebSocket, WebSocketDisconnect, Request
 from starlette.websockets import WebSocketState
 
-logging.basicConfig(level=logging.INFO, format="[%(asctime)s] %(levelname)s: %(message)s")
+logging.basicConfig(
+    level=logging.INFO, format="[%(asctime)s] %(levelname)s: %(message)s"
+)
 logger = logging.getLogger("websocket_server")
 
 app = FastAPI()
@@ -25,7 +27,9 @@ async def broadcast(room_id: str, message: str) -> None:
         try:
             await connection.send_text(message)
         except Exception as exc:  # Connection issues should not bring down the room
-            logger.warning("Failed to send message to client in room %s: %s", room_id, exc)
+            logger.warning(
+                "Failed to send message to client in room %s: %s", room_id, exc
+            )
             disconnected.add(connection)
 
     if disconnected:
@@ -33,7 +37,10 @@ async def broadcast(room_id: str, message: str) -> None:
             connections.discard(connection)
         if not connections:
             rooms.pop(room_id, None)
-            logger.info("Room %s removed after all clients disconnected during broadcast.", room_id)
+            logger.info(
+                "Room %s removed after all clients disconnected during broadcast.",
+                room_id,
+            )
 
 
 async def close_room(room_id: str) -> None:
@@ -54,13 +61,36 @@ async def close_room(room_id: str) -> None:
     logger.info("Room %s closed and removed.", room_id)
 
 
+@app.post("/ws/1")
+async def http_to_websocket(request: Request) -> dict:
+    """Receive HTTP POST with text/plain body and broadcast to WebSocket room 1."""
+    room_id = "1"
+
+    try:
+        # Read the body as plain text
+        body = await request.body()
+        message = body.decode("utf-8")
+
+        logger.info("HTTP POST received for room %s: %s", room_id, message)
+
+        # Broadcast the message to all connected websockets in room 1
+        await broadcast(room_id, message)
+
+        return {"status": "success", "message": "Message sent to WebSocket room 1"}
+    except Exception as exc:
+        logger.error("Error processing HTTP POST to WebSocket: %s", exc)
+        return {"status": "error", "message": str(exc)}
+
+
 @app.websocket("/ws/{room_id}")
 async def websocket_endpoint(websocket: WebSocket, room_id: str) -> None:
     await websocket.accept()
 
     room_connections = rooms.setdefault(room_id, set())
     room_connections.add(websocket)
-    logger.info("Client connected to room %s. Total clients: %d", room_id, len(room_connections))
+    logger.info(
+        "Client connected to room %s. Total clients: %d", room_id, len(room_connections)
+    )
 
     try:
         while True:
@@ -80,9 +110,14 @@ async def websocket_endpoint(websocket: WebSocket, room_id: str) -> None:
         connections = rooms.get(room_id)
         if connections and websocket in connections:
             connections.discard(websocket)
-            logger.info("Client removed from room %s. Remaining clients: %d", room_id, len(connections))
+            logger.info(
+                "Client removed from room %s. Remaining clients: %d",
+                room_id,
+                len(connections),
+            )
             if not connections:
                 rooms.pop(room_id, None)
                 logger.info("Room %s removed after last client left.", room_id)
+
 
 # Run with: uvicorn main:app --reload
